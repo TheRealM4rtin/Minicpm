@@ -8,6 +8,11 @@ Inference using Huggingface transformers on NVIDIA GPUs
 
 ## Text Generation Inference (TGI) toolkit
 
+## Monitoring
+
+```
+pip3 install --upgrade nvitop
+```
 
 ## Requirements
 - python 3.10

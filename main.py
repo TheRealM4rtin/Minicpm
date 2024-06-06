@@ -104,9 +104,12 @@ def prompt_model():
 
 
 if __name__ == "__main__":
-    file_path = "media/121861208.jpg"
-    output = process_file(file_path)
-    if output:
-        logger.info(f"Process completed. JSON saved at {output}")
-    else:
-        logger.info("Process failed.")
+    directory_path = "media/"
+    for filename in os.listdir(directory_path):
+        file_path = os.path.join(directory_path, filename)
+        if os.path.isfile(file_path):
+            output = process_file(file_path)
+            if output:
+                logger.info(f"Process completed. JSON saved at {output}")
+            else:
+                logger.info("Process failed for file: " + filename)
