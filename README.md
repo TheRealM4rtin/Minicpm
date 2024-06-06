@@ -8,7 +8,7 @@ Inference using Huggingface transformers on NVIDIA GPUs
 
 ## Text Generation Inference (TGI) toolkit
 
-## Monitoring
+## Monitoring Local GPU Usage
 
 ```
 pip3 install --upgrade nvitop
@@ -24,4 +24,11 @@ transformers==4.40.0
 sentencepiece==0.1.99
 fastapi
 tgi
+```
+
+## Docker Image
+
+```
+docker build -t Minicpm .
+docker run -d -p 8000:8000 Minicpm
 ```

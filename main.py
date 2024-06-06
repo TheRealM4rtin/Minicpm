@@ -1,55 +1,83 @@
 import os
-import json
-from PIL import Image
-import torch
 import logging
-
+import json
+import uvicorn
+from fastapi import FastAPI, HTTPException, UploadFile, File, Response
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
 from transformers import AutoTokenizer, AutoModel
+import torch
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+app = FastAPI()
 
-def process_file(file_path):
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
+# Initialize the model and tokenizer once to avoid loading them multiple times
+model = AutoModel.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True, torch_dtype=torch.float16).to(
+    'cuda')
+tokenizer = AutoTokenizer.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True)
+model.eval().to('cuda')
+
+
+@app.post("/process_file")
+async def process_file_endpoint(file: UploadFile = File(...)):
     try:
-
-        filename_without_extension, extension = os.path.splitext(file_path)
+        contents = await file.read()
+        logger.info(f"Received file: {file.filename}")
+        filename_without_extension, extension = os.path.splitext(file.filename)
+        file_path = f"media/{file.filename}"
         json_file_path = f"json/{filename_without_extension}.json"
 
-        # Initialize the model and tokenizer once
-        model = AutoModel.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True,
-                                          torch_dtype=torch.float16)
-        model = model.to(device='cuda')
+        with open(file_path, "wb") as f:
+            f.write(contents)
 
-        tokenizer = AutoTokenizer.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True)
-        model.eval()
+        result_json = await inference_minicpm(file_path)
 
-        img = Image.open(file_path).convert('RGB')
+        with open(json_file_path, 'w') as json_file:
+            json.dump(result_json, json_file)
+        logger.info(f"File saved at: {file_path}")
 
-        prompt = prompt_model()
-
-        msgs = [{'role': 'user', 'content': prompt}]
-
-        res = model.chat(image=img, msgs=msgs, tokenizer=tokenizer, sampling=True, temperature=0.7)
-
-        print(res)
-
-        generated_text = "".join(res)
-        result_json = {
-            "analysis": generated_text
+        return {
+            "message": "JSON generated and saved successfully",
+            "file_path": json_file_path,
+            "file_name": filename_without_extension
         }
 
-        # Save the result to a JSON file
-        with open(json_file_path, 'w') as file:
-            json.dump(result_json, file)
-
-        logger.info(f"JSON generated and saved successfully at {json_file_path}")
-        return json_file_path
-
     except Exception as e:
-        logger.error("Failed to process the file due to an error: " + str(e))
-        return None
+        logger.error(f"Error processing file: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/download_json/{file_name}")
+async def download_json(file_name: str):
+    logger.info(f"Downloading file from the go server: {file_path}")
+    file_path = f"json/{file_name}.json"
+    if os.path.exists(file_path):
+        return FileResponse(path=file_path, media_type='application/json')
+    else:
+        raise HTTPException(status_code=404, detail="File not found")
+
+
+async def inference_minicpm(image_path):
+    img = Image.open(image_path).convert('RGB')
+    prompt = prompt_model()
+    msgs = [{'role': 'user', 'content': prompt}]
+    res = model.chat(image=img, msgs=msgs, tokenizer=tokenizer, sampling=True, temperature=0.7)
+    generated_text = "".join(res)
+    result_json = {
+        "analysis": generated_text
+    }
+
+    return result_json
 
 def prompt_model():
     prompt = """
@@ -103,13 +131,7 @@ def prompt_model():
     return prompt
 
 
+
 if __name__ == "__main__":
-    directory_path = "media/"
-    for filename in os.listdir(directory_path):
-        file_path = os.path.join(directory_path, filename)
-        if os.path.isfile(file_path):
-            output = process_file(file_path)
-            if output:
-                logger.info(f"Process completed. JSON saved at {output}")
-            else:
-                logger.info("Process failed for file: " + filename)
+    if __name__ == "__main__":
+        uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
