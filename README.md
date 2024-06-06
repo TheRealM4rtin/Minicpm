@@ -29,6 +29,6 @@ tgi
 ## Docker Image
 
 ```
-docker build -t Minicpm .
-docker run -d -p 8000:8000 Minicpm
+docker build -t minicpm .
+docker run --gpus all -p 8000:8000 minicpm
 ```

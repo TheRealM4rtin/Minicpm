@@ -5,7 +5,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, UploadFile, File, Response
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from transformers import AutoTokenizer, AutoModel
 import torch
 
@@ -68,7 +68,11 @@ async def download_json(file_name: str):
 
 
 async def inference_minicpm(image_path):
-    img = Image.open(image_path).convert('RGB')
+    try:
+        img = Image.open(image_path)
+        img.verify()  # Verify that it's a complete and correct image
+    except (IOError, UnidentifiedImageError) as e:
+        raise HTTPException(status_code=422, detail="Uploaded image is corrupted or incomplete: " + str(e))
     prompt = prompt_model()
     msgs = [{'role': 'user', 'content': prompt}]
     res = model.chat(image=img, msgs=msgs, tokenizer=tokenizer, sampling=True, temperature=0.7)
@@ -78,6 +82,7 @@ async def inference_minicpm(image_path):
     }
 
     return result_json
+
 
 def prompt_model():
     prompt = """
@@ -129,7 +134,6 @@ def prompt_model():
         Religious Sensitivity: If religious symbols or items are visible, refer to them only if they are essential to the context of the scene, and always use general terms such as 'cultural symbols' without specifying the religion.
     """
     return prompt
-
 
 
 if __name__ == "__main__":
