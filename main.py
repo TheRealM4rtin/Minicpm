@@ -14,7 +14,7 @@ def process_file(file_path):
     try:
 
         filename_without_extension, extension = os.path.splitext(file_path)
-        json_file_path = f"media/{filename_without_extension}.json"
+        json_file_path = f"json/{filename_without_extension}.json"
 
         # Initialize the model and tokenizer once
         model = AutoModel.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True,
