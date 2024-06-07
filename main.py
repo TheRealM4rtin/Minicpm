@@ -1,3 +1,4 @@
+import shutil
 import os
 import logging
 import json
@@ -29,23 +30,33 @@ model.eval().to('cuda')
 
 
 @app.post("/process_file")
-async def process_file_endpoint(file: UploadFile = File(...)):
+async def process_file_endpoint(file: UploadFile, response: Response = None):
+    if not file:
+        return {"detail": "No file uploaded to FastAPI"}
+
+    logger.info(f"Received file: {file.filename}")
+    filename_without_extension, extension = os.path.splitext(file.filename)
+    file_path = f"upload/{file.filename}"
+    json_file_path = f"json/{filename_without_extension}.json"
+
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     try:
-        contents = await file.read()
-        logger.info(f"Received file: {file.filename}")
-        filename_without_extension, extension = os.path.splitext(file.filename)
-        file_path = f"media/{file.filename}"
-        json_file_path = f"json/{filename_without_extension}.json"
-
+        # Save the uploaded file
         with open(file_path, "wb") as f:
-            f.write(contents)
+            content = await file.read()
+            f.write(content)
+        logger.info(f"File {file.filename} saved locally at {file_path}")
 
+        logger.info("Starting Inference")
         result_json = await inference_minicpm(file_path)
+        logger.info("Inference Done")
 
         with open(json_file_path, 'w') as json_file:
             json.dump(result_json, json_file)
-        logger.info(f"File saved at: {file_path}")
+        logger.info(f"Results saved at: {json_file_path}")
 
+        response.headers["file_path"] = json_file_path
+        response.headers["file_name"] = filename_without_extension
         return {
             "message": "JSON generated and saved successfully",
             "file_path": json_file_path,
@@ -53,13 +64,16 @@ async def process_file_endpoint(file: UploadFile = File(...)):
         }
 
     except Exception as e:
+        import traceback
+        traceback_str = traceback.format_exc()  # Get the detailed traceback
+        print(traceback_str)
         logger.error(f"Error processing file: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/download_json/{file_name}")
 async def download_json(file_name: str):
-    logger.info(f"Downloading file from the go server: {file_path}")
+    logger.info(f"Downloading file from the go server")
     file_path = f"json/{file_name}.json"
     if os.path.exists(file_path):
         return FileResponse(path=file_path, media_type='application/json')
@@ -68,11 +82,8 @@ async def download_json(file_name: str):
 
 
 async def inference_minicpm(image_path):
-    try:
-        img = Image.open(image_path)
-        img.verify()  # Verify that it's a complete and correct image
-    except (IOError, UnidentifiedImageError) as e:
-        raise HTTPException(status_code=422, detail="Uploaded image is corrupted or incomplete: " + str(e))
+    with Image.open(image_path) as img:
+        img = img.convert('RGB')
     prompt = prompt_model()
     msgs = [{'role': 'user', 'content': prompt}]
     res = model.chat(image=img, msgs=msgs, tokenizer=tokenizer, sampling=True, temperature=0.7)
