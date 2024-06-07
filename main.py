@@ -73,8 +73,13 @@ async def process_file_endpoint(file: UploadFile, response: Response = None):
 
 @app.get("/download_json/{file_name}")
 async def download_json(file_name: str):
-    logger.info(f"Downloading file from the go server")
-    file_path = f"json/{file_name}.json"
+
+    if ".." in file_name or "/" in file_name or "\\" in file_name:
+        raise HTTPException(status_code=400, detail="Invalid file name.")
+
+    file_path = f"json/{file_name}.json"  # Construct the file path securely
+    logger.info(f"Downloading file: {file_path}")
+
     if os.path.exists(file_path):
         return FileResponse(path=file_path, media_type='application/json')
     else:
