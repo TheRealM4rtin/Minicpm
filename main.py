@@ -1,19 +1,14 @@
-import aiofiles
-import aiohttp
-import logging
+import shutil
 import os
-import tempfile
-import torch
-import uuid
-import uvicorn
-from PIL import Image
-from fastapi import FastAPI, HTTPException, UploadFile, File, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from transformers import AutoTokenizer, AutoModel
-
+import logging
 import json
+import uvicorn
+from fastapi import FastAPI, HTTPException, UploadFile, File, Response
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image, UnidentifiedImageError
+from transformers import AutoTokenizer, AutoModel
+import torch
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,63 +29,53 @@ tokenizer = AutoTokenizer.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_
 model.eval().to('cuda')
 
 
-class FileURLRequest(BaseModel):
-    url: str
-
-
 @app.post("/process_file")
-async def process_file(file_request: FileURLRequest):
-    # Generate a unique file name
-    unique_filename = f"{uuid.uuid4()}.tmp"
-
-    # Use a temporary directory for storage
-    temp_dir = tempfile.gettempdir()
-    local_filepath = os.path.join(temp_dir, unique_filename)
-
+async def process_file_endpoint(file: UploadFile = File(...)):
     try:
-        # Asynchronous HTTP request to download the file
-        async with aiohttp.ClientSession() as session:
-            async with session.get(file_request.url) as response:
-                if response.status != 200:
-                    raise HTTPException(status_code=400, detail="Failed to download the file")
+        contents = await file.read()
+        logger.info(f"Received file: {file.filename}")
+        filename_without_extension, extension = os.path.splitext(file.filename)
+        file_path = f"media/{file.filename}"
+        json_file_path = f"json/{filename_without_extension}.json"
 
-                # Write to the file asynchronously using aiofiles
-                async with aiofiles.open(local_filepath, 'wb') as tmp_file:
-                    async for data in response.content.iter_chunked(1024 * 1024):  # 1MB chunks
-                        await tmp_file.write(data)
+        with open(file_path, "wb") as f:
+            f.write(contents)
 
-    except aiohttp.ClientError as e:
-        raise HTTPException(status_code=500, detail=f"Error downloading the file: {str(e)}")
+        result_json = await inference_minicpm(file_path)
 
-    try:
-        result_json = await inference_minicpm(local_filepath)
+        with open(json_file_path, 'w') as json_file:
+            json.dump(result_json, json_file)
+        logger.info(f"File saved at: {file_path}")
+
+        return {
+            "message": "JSON generated and saved successfully",
+            "file_path": json_file_path,
+            "file_name": filename_without_extension
+        }
 
     except Exception as e:
-        os.remove(local_filepath)  # Delete file even on failure
-        logging.error(f"Error processing file: {str(e)}")
+        logger.error(f"Error processing file: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Delete the file after processing
-    os.remove(local_filepath)
 
-    return {
-        "message": "JSON generated and saved successfully",
-        "results": result_json
-    }
+@app.get("/download_json/{file_name}")
+async def download_json(file_name: str):
 
+    if ".." in file_name or "/" in file_name or "\\" in file_name:
+        raise HTTPException(status_code=400, detail="Invalid file name.")
 
-# @app.get("/download_json/{file_name}")
-# async def download_json(file_name: str):
-#     logger.info(f"Downloading file from the go server: {file_path}")
-#     file_path = f"json/{file_name}.json"
-#     if os.path.exists(file_path):
-#         return FileResponse(path=file_path, media_type='application/json')
-#     else:
-#         raise HTTPException(status_code=404, detail="File not found")
+    file_path = f"json/{file_name}.json"  # Construct the file path securely
+    logger.info(f"Downloading file: {file_path}")
+
+    if os.path.exists(file_path):
+        return FileResponse(path=file_path, media_type='application/json')
+    else:
+        raise HTTPException(status_code=404, detail="File not found")
 
 
 async def inference_minicpm(image_path):
-    img = Image.open(image_path).convert('RGB')
+    with Image.open(image_path) as img:
+        img = img.convert('RGB')
     prompt = prompt_model()
     msgs = [{'role': 'user', 'content': prompt}]
     res = model.chat(image=img, msgs=msgs, tokenizer=tokenizer, sampling=True, temperature=0.7)
@@ -100,7 +85,6 @@ async def inference_minicpm(image_path):
     }
 
     return result_json
-
 
 def prompt_model():
     prompt = """
@@ -152,6 +136,7 @@ def prompt_model():
         Religious Sensitivity: If religious symbols or items are visible, refer to them only if they are essential to the context of the scene, and always use general terms such as 'cultural symbols' without specifying the religion.
     """
     return prompt
+
 
 
 if __name__ == "__main__":
