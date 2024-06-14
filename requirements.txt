@@ -6,3 +6,5 @@ sentencepiece==0.1.99
 fastapi
 tgi
 uvicorn
+aiohttp
+aiofiles
