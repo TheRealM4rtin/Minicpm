@@ -3,7 +3,7 @@ import os
 import shutil
 import torch
 import uvicorn
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl
 import aiohttp
 import aiofiles
 import tempfile
@@ -15,7 +15,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from transformers import AutoTokenizer, AutoModel
 
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -23,24 +22,31 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"]
+    allow_credentials=True,
+    allow_origins=[
+        "http://localhost:3000",  # The front-end application URL
+        "http://127.0.0.1:3000",  # If you also access via localhost IP
+        # Add other origins as needed
+    ],
+    allow_methods=["POST"],
+    allow_headers=["Content-Type"]
 )
 
+
 # Initialize the model and tokenizer once to avoid loading them multiple times
-model = AutoModel.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True, torch_dtype=torch.float16).to(
-    'cuda')
-tokenizer = AutoTokenizer.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True)
-model.eval().to('cuda')
+# model = AutoModel.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True, torch_dtype=torch.float16).to(
+#     'cuda')
+# tokenizer = AutoTokenizer.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True)
+# model.eval().to('cuda')
 
 
 class FileURLRequest(BaseModel):
-    url: str
+    url: HttpUrl
 
 
 @app.post("/process_file")
 async def process_file(file_request: FileURLRequest):
+    print(f"Processing URL: {file_request.url}")
     # Generate a unique file name using UUID
     unique_filename = f"{uuid.uuid4()}.tmp"
 
@@ -48,11 +54,24 @@ async def process_file(file_request: FileURLRequest):
     temp_dir = tempfile.gettempdir()
     local_filepath = os.path.join(temp_dir, unique_filename)
 
+    logger.info(f"{unique_filename, temp_dir, local_filepath}")
+
+    try:
+        # Directly inspect what is being received before trying to parse it into Pydantic model
+        request_data = await request.json()
+        logging.info(f"Received data: {request_data}")
+    except Exception as e:
+        logging.error(f"Error reading request data: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid JSON format received.")
+
     try:
         # Asynchronous HTTP request to download the file
         async with aiohttp.ClientSession() as session:
             async with session.get(file_request.url) as response:
+                response_text = await response.text()  # Capture response body for logging
+                logger.info(f"HTTP Status: {response.status}, Response Body: {response_text[:500]}")
                 if response.status != 200:
+                    logger.info("Fail here")
                     raise HTTPException(status_code=400, detail="Failed to download the file")
 
                 # Write to the file asynchronously using aiofiles
