@@ -6,6 +6,11 @@
 
 Inference using Huggingface transformers on NVIDIA GPUs
 
+## Usage
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000
+``` 
 
 ## Monitoring Local GPU Usage
 

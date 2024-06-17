@@ -34,10 +34,10 @@ app.add_middleware(
 
 
 # Initialize the model and tokenizer once to avoid loading them multiple times
-# model = AutoModel.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True, torch_dtype=torch.float16).to(
-#     'cuda')
-# tokenizer = AutoTokenizer.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True)
-# model.eval().to('cuda')
+model = AutoModel.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True, torch_dtype=torch.float16).to(
+    'cuda')
+tokenizer = AutoTokenizer.from_pretrained('openbmb/MiniCPM-Llama3-V-2_5', trust_remote_code=True)
+model.eval().to('cuda')
 
 
 class FileURLRequest(BaseModel):
@@ -58,8 +58,8 @@ async def process_file(file_request: FileURLRequest):
 
     try:
         # Directly inspect what is being received before trying to parse it into Pydantic model
-        request_data = await request.json()
-        logging.info(f"Received data: {request_data}")
+        download_link = file_request.url
+        logging.info(f"Received data: {download_link}")
     except Exception as e:
         logging.error(f"Error reading request data: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid JSON format received.")
@@ -67,22 +67,20 @@ async def process_file(file_request: FileURLRequest):
     try:
         # Asynchronous HTTP request to download the file
         async with aiohttp.ClientSession() as session:
-            async with session.get(file_request.url) as response:
-                response_text = await response.text()  # Capture response body for logging
-                logger.info(f"HTTP Status: {response.status}, Response Body: {response_text[:500]}")
+            async with session.get(download_link) as response:
                 if response.status != 200:
-                    logger.info("Fail here")
                     raise HTTPException(status_code=400, detail="Failed to download the file")
 
                 # Write to the file asynchronously using aiofiles
                 async with aiofiles.open(local_filepath, 'wb') as tmp_file:
-                    async for data in response.content.iter_chunked(1024 * 1024):  # 1MB chunks
-                        await tmp_file.write(data)
+                    async for chunk in response.content.iter_chunked(1024 * 1024):  # 1MB chunks
+                        await tmp_file.write(chunk)
 
     except aiohttp.ClientError as e:
         raise HTTPException(status_code=500, detail=f"Error downloading the file: {str(e)}")
 
     try:
+        logger.info(f"Processing file: {local_filepath}")
         result_json = await inference_minicpm(local_filepath)
 
     except Exception as e:
