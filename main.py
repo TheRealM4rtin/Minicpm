@@ -24,9 +24,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
     allow_origins=[
-        "http://localhost:3000",  # The front-end application URL
-        "http://127.0.0.1:3000",  # If you also access via localhost IP
-        # Add other origins as needed
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
     ],
     allow_methods=["POST"],
     allow_headers=["Content-Type"]
@@ -46,23 +45,15 @@ class FileURLRequest(BaseModel):
 
 @app.post("/process_file")
 async def process_file(file_request: FileURLRequest):
-    print(f"Processing URL: {file_request.url}")
+    download_link = str(file_request.url)
+    logger.info(f"Processing URL: {download_link}")
+
     # Generate a unique file name using UUID
     unique_filename = f"{uuid.uuid4()}.tmp"
-
-    # Use a temporary directory for storage
     temp_dir = tempfile.gettempdir()
     local_filepath = os.path.join(temp_dir, unique_filename)
 
     logger.info(f"{unique_filename, temp_dir, local_filepath}")
-
-    try:
-        # Directly inspect what is being received before trying to parse it into Pydantic model
-        download_link = file_request.url
-        logging.info(f"Received data: {download_link}")
-    except Exception as e:
-        logging.error(f"Error reading request data: {str(e)}")
-        raise HTTPException(status_code=400, detail="Invalid JSON format received.")
 
     try:
         # Asynchronous HTTP request to download the file
@@ -92,8 +83,7 @@ async def process_file(file_request: FileURLRequest):
     os.remove(local_filepath)
 
     return {
-        "message": "JSON generated and saved successfully",
-        "results": result_json
+        "results" : result_json
     }
 
 
@@ -117,9 +107,9 @@ async def inference_minicpm(image_path):
     prompt = prompt_model()
     msgs = [{'role': 'user', 'content': prompt}]
     res = model.chat(image=img, msgs=msgs, tokenizer=tokenizer, sampling=True, temperature=0.7)
-    generated_text = "".join(res)
+    generated_text = res
     result_json = {
-        "analysis": generated_text
+        generated_text
     }
 
     return result_json

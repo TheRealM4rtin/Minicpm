@@ -7,3 +7,5 @@ fastapi
 uvicorn
 aiohttp
 aiofiles
+numpy<2.0.0
+pydantic
